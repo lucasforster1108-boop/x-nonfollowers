@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         X 关注列表未回关标记
-// @name:en      X Following Not-Followed-Back Badge
+// @name         X 关注标记（未回关 + 已关注）
+// @name:en      X Follow Badges (Not-Followed-Back + Following)
 // @namespace    https://github.com/lucasforster1108-boop/x-nonfollowers
-// @version      1.0.0
-// @description  打开 X 的关注列表时，给「没回关」的人在头像下加一个红色小标记。数据来自页面自己加载的接口，不额外请求、不爬取。
+// @version      1.1.0
+// @description  两个标记：1) 关注列表里，没回关的人头像下显示红色「未回关」；2) 刷帖子时，你关注的作者头像下显示「已关注」。数据来自页面自己加载的接口，不额外请求、不爬取。
 // @author       Lucas Forster
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -17,16 +17,17 @@
 
   // ============ core:start（解析逻辑，本地测试覆盖这一段） ============
   // followedByMap: screen_name(小写) -> true(对方关注了我) / false(没关注)
+  // followingMap:  screen_name(小写) -> true(我关注了对方) / false(没关注)
   const followedByMap = new Map();
+  const followingMap = new Map();
 
-  function readFollowedBy(user) {
-    // X 改过几次字段位置，挨个兜底
-    if (typeof user.followed_by === 'boolean') return user.followed_by;
-    if (user.legacy && typeof user.legacy.followed_by === 'boolean') {
-      return user.legacy.followed_by;
+  function readBool(user, key) {
+    if (typeof user[key] === 'boolean') return user[key];
+    if (user.legacy && typeof user.legacy[key] === 'boolean') {
+      return user.legacy[key];
     }
     const rp = user.relationship_perspectives;
-    if (rp && typeof rp.followed_by === 'boolean') return rp.followed_by;
+    if (rp && typeof rp[key] === 'boolean') return rp[key];
     return undefined;
   }
 
@@ -42,14 +43,20 @@
     return undefined;
   }
 
-  // 递归遍历接口返回的 JSON，凡是带用户名和 followed_by 的对象都记下来
+  // 递归遍历接口返回的 JSON，带用户名和关系字段的用户对象都记下来
   function collectUsers(node) {
     if (!node || typeof node !== 'object') return;
     if (!Array.isArray(node)) {
       const name = readScreenName(node);
-      const fb = readFollowedBy(node);
-      if (name && typeof fb === 'boolean') {
-        followedByMap.set(name.toLowerCase(), fb);
+      if (name) {
+        const fb = readBool(node, 'followed_by');
+        if (typeof fb === 'boolean') {
+          followedByMap.set(name.toLowerCase(), fb);
+        }
+        const fg = readBool(node, 'following');
+        if (typeof fg === 'boolean') {
+          followingMap.set(name.toLowerCase(), fg);
+        }
       }
     }
     const children = Array.isArray(node) ? node : Object.values(node);
@@ -57,16 +64,16 @@
   }
   // ============ core:end ============
 
-  // 只处理 Following 列表接口的返回（页面自己发的请求，我们只是旁听）
-  function looksLikeFollowingResponse(url) {
-    return typeof url === 'string' && /\/Following(\?|$)/.test(url);
+  // 旁听所有 GraphQL 接口返回（页面自己发的请求，我们只是看一眼）
+  function looksLikeApiResponse(url) {
+    return typeof url === 'string' && url.indexOf('/graphql/') !== -1;
   }
 
-  function handleJson(url, json) {
-    if (!looksLikeFollowingResponse(url) || !json) return;
-    const before = followedByMap.size;
+  function handleJson(json) {
+    if (!json) return;
+    const before = followedByMap.size + followingMap.size;
     collectUsers(json);
-    if (followedByMap.size !== before) scheduleTag();
+    if (followedByMap.size + followingMap.size !== before) scheduleTag();
   }
 
   // 旁听 fetch
@@ -74,12 +81,12 @@
   window.fetch = function (...args) {
     const url = typeof args[0] === 'string' ? args[0] : args[0] && args[0].url;
     const p = origFetch.apply(this, args);
-    if (looksLikeFollowingResponse(url)) {
+    if (looksLikeApiResponse(url)) {
       p.then((res) => {
         res
           .clone()
           .json()
-          .then((json) => handleJson(url, json))
+          .then((json) => handleJson(json))
           .catch(() => {});
       }).catch(() => {});
     }
@@ -94,10 +101,10 @@
     return origOpen.apply(this, arguments);
   };
   XMLHttpRequest.prototype.send = function () {
-    if (looksLikeFollowingResponse(this.__xfbUrl)) {
+    if (looksLikeApiResponse(this.__xfbUrl)) {
       this.addEventListener('load', () => {
         try {
-          handleJson(this.__xfbUrl, JSON.parse(this.responseText));
+          handleJson(JSON.parse(this.responseText));
         } catch (e) {
           /* 不是 JSON 就跳过 */
         }
@@ -108,14 +115,39 @@
 
   // ============ 页面标记 ============
   const BADGE_CLASS = 'xfb-badge';
-  const BADGE_TEXT = '未回关';
 
-  function isFollowingPage() {
-    return /\/[^/]+\/following\/?$/.test(location.pathname);
+  function makeBadge(text, bg) {
+    const badge = document.createElement('div');
+    badge.className = BADGE_CLASS;
+    badge.textContent = text;
+    badge.style.cssText =
+      'display:inline-block;margin-top:2px;padding:0 6px;' +
+      'font-size:11px;line-height:16px;color:#fff;background:' +
+      bg +
+      ';border-radius:8px;font-weight:700;white-space:nowrap;';
+    return badge;
   }
 
+  function attachBadge(cell, text, bg, user) {
+    let badge = cell.querySelector('.' + BADGE_CLASS);
+    if (badge && badge.dataset.user === user && badge.textContent === text) {
+      return; // 已经标对了
+    }
+    if (badge) badge.remove();
+    badge = makeBadge(text, bg);
+    badge.dataset.user = user;
+    const avatarLink = cell.querySelector('a[href^="/"]');
+    const anchor = (avatarLink && avatarLink.closest('div')) || cell;
+    anchor.appendChild(badge);
+  }
+
+  function dropBadge(cell) {
+    const badge = cell.querySelector('.' + BADGE_CLASS);
+    if (badge) badge.remove();
+  }
+
+  // 条目里指向用户主页的链接，href 形如 /someone
   function cellScreenName(cell) {
-    // UserCell 里指向用户主页的链接，href 形如 /someone
     const links = cell.querySelectorAll('a[href^="/"]');
     for (const a of links) {
       const m = /^\/([A-Za-z0-9_]{1,15})\/?$/.exec(a.getAttribute('href') || '');
@@ -124,42 +156,56 @@
     return null;
   }
 
-  function ensureBadge(cell) {
-    let badge = cell.querySelector('.' + BADGE_CLASS);
-    if (!badge) {
-      badge = document.createElement('div');
-      badge.className = BADGE_CLASS;
-      badge.textContent = BADGE_TEXT;
-      badge.style.cssText =
-        'display:inline-block;margin-top:2px;padding:0 6px;' +
-        'font-size:11px;line-height:16px;color:#fff;background:#e0245e;' +
-        'border-radius:8px;font-weight:700;';
-      // 优先挂到头像链接下面；找不到就挂到整个条目末尾
-      const avatarLink = cell.querySelector('a[href^="/"]');
-      const anchor =
-        (avatarLink && avatarLink.closest('div')) || cell;
-      anchor.appendChild(badge);
+  function myHandle() {
+    const link = document.querySelector(
+      'a[data-testid="AppTabBar_Profile_Link"]'
+    );
+    if (link) {
+      const m = /^\/([A-Za-z0-9_]{1,15})\/?$/.exec(
+        link.getAttribute('href') || ''
+      );
+      if (m) return m[1].toLowerCase();
     }
-    return badge;
+    return null;
   }
 
-  function tagCells() {
-    if (!isFollowingPage()) return;
-    const cells = document.querySelectorAll('[data-testid="UserCell"]');
-    cells.forEach((cell) => {
+  // 关注列表页：没回关 -> 红色「未回关」
+  function tagUserCells() {
+    if (!/\/[^/]+\/following\/?$/.test(location.pathname)) return;
+    document.querySelectorAll('[data-testid="UserCell"]').forEach((cell) => {
       const name = cellScreenName(cell);
-      const badge = cell.querySelector('.' + BADGE_CLASS);
       if (!name || !followedByMap.has(name)) {
-        if (badge) badge.remove();
+        dropBadge(cell);
         return;
       }
       if (followedByMap.get(name) === false) {
-        const b = ensureBadge(cell);
-        b.dataset.user = name;
-      } else if (badge) {
-        badge.remove(); // 互关（或列表虚拟滚动复用了条目）不留标记
+        attachBadge(cell, '未回关', '#e0245e', name);
+      } else {
+        dropBadge(cell);
       }
     });
+  }
+
+  // 时间线/帖子流：我关注的作者 -> 绿色「已关注」
+  function tagTweetCells() {
+    const me = myHandle();
+    document.querySelectorAll('[data-testid="tweet"]').forEach((cell) => {
+      const name = cellScreenName(cell);
+      if (!name || name === me || !followingMap.has(name)) {
+        dropBadge(cell);
+        return;
+      }
+      if (followingMap.get(name) === true) {
+        attachBadge(cell, '已关注', '#0f7b3d', name);
+      } else {
+        dropBadge(cell);
+      }
+    });
+  }
+
+  function tagCells() {
+    tagUserCells();
+    tagTweetCells();
   }
 
   let tagTimer = null;
@@ -171,7 +217,7 @@
     }, 150);
   }
 
-  // 列表是虚拟滚动，DOM 一直在变，盯住变化重新标记
+  // 页面是虚拟滚动，DOM 一直在变，盯住变化重新标记
   const observer = new MutationObserver(scheduleTag);
   function startObserving() {
     if (document.body) {
