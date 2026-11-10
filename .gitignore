@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+# 你自己的数据包和导出结果别传上来
+*.zip
+out.csv
+out.html
