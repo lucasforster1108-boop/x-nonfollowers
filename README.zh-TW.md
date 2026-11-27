@@ -22,7 +22,7 @@ X 的網頁自己就知道你們倆的關注關係（個人主頁上那個「關
 - **關注列表頁**：對方沒回關 → 紅色小藥丸標記「未回關」，掛在頭像下面；互關的人不標。
 - **刷帖子時**（主頁時間線等）：作者是你關注的人 → 綠色標記「已關注」，掛在頭像下面；沒關注的作者不標。
 
-它不發任何額外請求、不收集資料、不自動取關，純顯示。
+它不發任何額外請求、不收集資料、不自動取關，純顯示。標記文字跟隨 X 的介面語言自動切換（簡體中文 / English / 日本語 / 한국어）；裝好後 Tampermonkey 會自動檢查更新，不用手動重灌。
 
 ### 安裝
 
@@ -60,6 +60,12 @@ python x_nonfollowers.py twitter-2026-11-10.zip --csv out.csv --html out.html
 
 # 顺带列出互关的人
 python x_nonfollowers.py twitter-2026-11-10.zip --show-mutual
+
+# 顺带列出关注了我但我没回关的人
+python x_nonfollowers.py twitter-2026-11-10.zip --show-followers-only
+
+# 全部结果导出成 JSON，喂给别的工具接着处理
+python x_nonfollowers.py twitter-2026-11-10.zip --json out.json
 ```
 
 先拿倉庫自帶的假資料試一把：

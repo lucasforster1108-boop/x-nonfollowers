@@ -7,7 +7,8 @@ following.js 和 follower.js，两个名单做差集。不联网、不登录、
 
 用法：
     python x_nonfollowers.py <数据包文件夹或 zip 文件>
-    python x_nonfollowers.py <路径> --csv out.csv --html out.html
+    python x_nonfollowers.py <路径> --csv out.csv --html out.html --json out.json
+    python x_nonfollowers.py <路径> --show-followers-only   # 反向：关注了我但我没回关
 
 数据包里只有对方的数字 ID（X 的存档格式就是这样，不含用户名），
 所以结果给出可直接点开的主页链接。
@@ -83,7 +84,22 @@ def load_ids(source: Path, stem: str, key: str) -> list:
 
 
 def profile_url(account_id: str) -> str:
-    return f"https://twitter.com/intent/user?user_id={account_id}"
+    return f"https://x.com/intent/user?user_id={account_id}"
+
+
+def write_json(path: Path, not_back: list, mutual: list,
+               followers_only: list, stats: dict) -> None:
+    def entries(ids):
+        return [{"accountId": i, "profile_url": profile_url(i)} for i in ids]
+
+    doc = {
+        "stats": stats,
+        "not_following_back": entries(not_back),
+        "mutual": entries(mutual),
+        "followers_only": entries(followers_only),
+    }
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
 
 
 def write_csv(path: Path, ids: list) -> None:
@@ -121,8 +137,14 @@ def main() -> int:
     ap.add_argument("source", help="数据包解压后的文件夹，或原始 zip 文件")
     ap.add_argument("--csv", metavar="PATH", help="把名单另存为 CSV")
     ap.add_argument("--html", metavar="PATH", help="把名单另存为可点链接的 HTML")
+    ap.add_argument("--json", metavar="PATH", help="把全部结果另存为 JSON")
     ap.add_argument(
         "--show-mutual", action="store_true", help="同时列出互关的人（默认只统计数量）"
+    )
+    ap.add_argument(
+        "--show-followers-only",
+        action="store_true",
+        help="同时列出关注了我但我没回关的人（默认只统计数量）",
     )
     args = ap.parse_args()
 
@@ -138,10 +160,12 @@ def main() -> int:
     following_set = set(following)
     not_back = [i for i in following if i not in follower_set]
     mutual = [i for i in following if i in follower_set]
+    followers_only = [i for i in followers if i not in following_set]
     stats = {
         "following": len(following),
         "followers": len(followers),
         "mutual": len(mutual),
+        "followers_only": len(followers_only),
     }
 
     print(f"关注 {stats['following']} 人，粉丝 {stats['followers']} 人，互关 {stats['mutual']} 人。")
@@ -154,12 +178,20 @@ def main() -> int:
         for i in mutual:
             print(f"  {i}  {profile_url(i)}")
 
+    print(f"关注了我但我没回关：{len(followers_only)} 人")
+    if args.show_followers_only:
+        for i in followers_only:
+            print(f"  {i}  {profile_url(i)}")
+
     if args.csv:
         write_csv(Path(args.csv), not_back)
         print(f"已写入 CSV：{args.csv}")
     if args.html:
         write_html(Path(args.html), not_back, stats)
         print(f"已写入 HTML：{args.html}")
+    if args.json:
+        write_json(Path(args.json), not_back, mutual, followers_only, stats)
+        print(f"已写入 JSON：{args.json}")
     return 0
 
 

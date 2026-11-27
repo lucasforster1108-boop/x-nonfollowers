@@ -2,9 +2,11 @@
 // @name         X 关注标记（未回关 + 已关注）
 // @name:en      X Follow Badges (Not-Followed-Back + Following)
 // @namespace    https://github.com/lucasforster1108-boop/x-nonfollowers
-// @version      1.1.0
-// @description  两个标记：1) 关注列表里，没回关的人头像下显示红色「未回关」；2) 刷帖子时，你关注的作者头像下显示「已关注」。数据来自页面自己加载的接口，不额外请求、不爬取。
+// @version      1.2.0
+// @description  两个标记：1) 关注列表里，没回关的人头像下显示红色「未回关」；2) 刷帖子时，你关注的作者头像下显示「已关注」。数据来自页面自己加载的接口，不额外请求、不爬取。标记文字跟随 X 界面语言（中/英/日/韩）。
 // @author       Lucas Forster
+// @downloadURL  https://raw.githubusercontent.com/lucasforster1108-boop/x-nonfollowers/main/userscript/x-follow-badge.user.js
+// @updateURL    https://raw.githubusercontent.com/lucasforster1108-boop/x-nonfollowers/main/userscript/x-follow-badge.user.js
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-start
@@ -116,6 +118,20 @@
   // ============ 页面标记 ============
   const BADGE_CLASS = 'xfb-badge';
 
+  // 标记文字跟随 X 界面语言（读 <html lang>，兜底用浏览器语言）
+  const BADGE_TEXT = (() => {
+    const lang = (
+      document.documentElement.lang ||
+      navigator.language ||
+      'en'
+    ).toLowerCase();
+    if (lang.startsWith('zh')) return { notBack: '未回关', following: '已关注' };
+    if (lang.startsWith('ja'))
+      return { notBack: 'フォローバックなし', following: 'フォロー中' };
+    if (lang.startsWith('ko')) return { notBack: '맞팔 아님', following: '팔로잉 중' };
+    return { notBack: 'Not following back', following: 'Following' };
+  })();
+
   function makeBadge(text, bg) {
     const badge = document.createElement('div');
     badge.className = BADGE_CLASS;
@@ -179,7 +195,7 @@
         return;
       }
       if (followedByMap.get(name) === false) {
-        attachBadge(cell, '未回关', '#e0245e', name);
+        attachBadge(cell, BADGE_TEXT.notBack, '#e0245e', name);
       } else {
         dropBadge(cell);
       }
@@ -196,7 +212,7 @@
         return;
       }
       if (followingMap.get(name) === true) {
-        attachBadge(cell, '已关注', '#0f7b3d', name);
+        attachBadge(cell, BADGE_TEXT.following, '#0f7b3d', name);
       } else {
         dropBadge(cell);
       }

@@ -22,7 +22,7 @@ X's web app already knows the follow relationship between you two (the "Follows 
 - **Following list page**: hasn't followed you back → a small red pill badge "未回关" (not following back) under the avatar; mutual follows get no badge.
 - **Scrolling posts** (home timeline etc.): the author is someone you follow → a green "已关注" (following) badge under the avatar; authors you don't follow get no badge.
 
-It sends no extra requests, collects no data, and never unfollows anyone. Display only.
+It sends no extra requests, collects no data, and never unfollows anyone. Display only. Badge text follows your X interface language automatically (Simplified Chinese / English / Japanese / Korean), and once installed, Tampermonkey checks for updates on its own — no manual reinstalls.
 
 ### Install
 
@@ -60,6 +60,12 @@ python x_nonfollowers.py twitter-2026-11-10.zip --csv out.csv --html out.html
 
 # Also list the mutual follows
 python x_nonfollowers.py twitter-2026-11-10.zip --show-mutual
+
+# Also list the people who follow you but you don't follow back
+python x_nonfollowers.py twitter-2026-11-10.zip --show-followers-only
+
+# Export everything as JSON for other tools
+python x_nonfollowers.py twitter-2026-11-10.zip --json out.json
 ```
 
 Try it first with the fake data bundled in the repo:
